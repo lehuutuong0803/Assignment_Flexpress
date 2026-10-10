@@ -32,7 +32,7 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HEALTH_ENABLED: "true"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./docker/keycloak:/opt/keycloak/data/import:ro
     healthcheck:
@@ -49,16 +49,14 @@ services:
       start_period: 30s
 
   minio:
-    # Official MinIO images are discontinued (community edition is source-only, upstream repo
-    # archived). pgsty/minio is a maintained AGPL rebuild of the same server, pinned to a release.
     image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-dev-only-minio-user}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-dev-only-minio-password}
     ports:
-      - "9000:9000" # S3 API: presigned URLs are used from the host
-      - "9001:9001" # web console
+      - "127.0.0.1:9000:9000" # S3 API: presigned URLs are used from the host
+      - "127.0.0.1:9001:9001" # web console
     volumes:
       - minio-data:/data
     healthcheck:
