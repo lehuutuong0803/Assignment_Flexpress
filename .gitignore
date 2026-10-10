@@ -1,11 +1,14 @@
-# Nestjs specific
-/dist
-/node_modules
-/build
-/tmp
+# Dependencies and build output (no leading slash: matches at any depth)
+node_modules/
+dist/
+build/
+coverage/
+tmp/
+.temp/
+.tmp/
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 pnpm-debug.log*
@@ -13,12 +16,14 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
-# dotenv environment variable files
+# Environment files: only the placeholder template is committed
 .env
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
 
-# temp directory
-.temp
-.tmp
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
