@@ -1,0 +1,178 @@
+# CI/CD for delivery-service.
+#   lint → test → build (image :$CI_COMMIT_SHA in the GitLab registry) → migrate → deploy
+#   main branch: migrate + deploy to staging automatically.
+#   tags v*:     migrate + deploy to production, each a manual click.
+#
+# Variables (Settings → CI/CD → Variables). Secrets are Masked + Protected, so they only reach
+# jobs on protected branches/tags and never show in job logs:
+#   SSH_PRIVATE_KEY_B64   base64 of the CI deploy key (base64 so it's one line and maskable)
+#   SSH_KNOWN_HOSTS       output of `ssh-keyscan -t ed25519 <host>` (not secret)
+#   DB_PASSWORD           password of the `delivery` database role
+#   KC_DB_PASSWORD        password of the `keycloak` database role
+#   KC_ADMIN_PASSWORD     Keycloak bootstrap admin password
+#   STAGING_HOST, STAGING_API_HOST, STAGING_AUTH_HOST, DB_HOST, S3_BUCKET, ACME_EMAIL (not secret)
+#   PRODUCTION_HOST, ...  the production job only appears once PRODUCTION_HOST is defined.
+
+stages: [lint, test, build, migrate, deploy-staging, deploy-production]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  NODE_IMAGE: node:24.21.0-alpine3.24
+  IMAGE: $CI_REGISTRY_IMAGE/delivery-service
+  npm_config_cache: $CI_PROJECT_DIR/.npm
+
+.node:
+  image: $NODE_IMAGE
+  cache:
+    key:
+      files: [delivery-service/package-lock.json]
+    paths: [.npm/]
+  before_script:
+    - cd delivery-service
+    - npm ci --prefer-offline --no-audit
+
+lint:
+  stage: lint
+  extends: .node
+  script:
+    - npm run lint:check
+    - npm audit --omit=dev --audit-level=high
+
+test:
+  stage: test
+  extends: .node
+  services:
+    - name: postgres:17.6-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: delivery
+    POSTGRES_USER: delivery
+    POSTGRES_PASSWORD: ci-only-password
+    # The e2e suite boots the real app; token verification is swapped for test keys,
+    # so Keycloak and S3 values only need to pass config validation.
+    DB_HOST: postgres
+    DB_NAME: delivery
+    DB_USER: delivery
+    DB_PASSWORD: ci-only-password
+    KEYCLOAK_ISSUER: http://localhost:8080/realms/flexpress
+    KEYCLOAK_JWKS_URI: http://localhost:8080/realms/flexpress/protocol/openid-connect/certs
+    KEYCLOAK_AUDIENCE: delivery-service
+    S3_BUCKET: ci-bucket
+    LOG_LEVEL: warn
+  script:
+    - npm test -- --ci
+    - npm run build
+    - npm run test:e2e -- --ci
+
+build:
+  stage: build
+  image: docker:28.3.3
+  services: [docker:28.3.3-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: /certs
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Reuse layers from the last main build so unchanged dependency layers aren't rebuilt.
+    - docker pull "$IMAGE:latest" || true
+    - docker build --pull --cache-from "$IMAGE:latest" -t "$IMAGE:$CI_COMMIT_SHA" ./delivery-service
+    - docker push "$IMAGE:$CI_COMMIT_SHA"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$IMAGE:$CI_COMMIT_SHA" "$IMAGE:latest" && docker push "$IMAGE:latest"
+      fi
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag "$IMAGE:$CI_COMMIT_SHA" "$IMAGE:$CI_COMMIT_TAG" && docker push "$IMAGE:$CI_COMMIT_TAG"
+      fi
+
+# Shared by migrate and deploy jobs: SSH in as `deploy`, upload the deploy files, write the env
+# files (mode 600) from CI variables, log the host into the registry with this job's short-lived
+# token, then run deploy.sh. Nothing secret is stored in git or in the image.
+.remote:
+  image: alpine:3.22
+  variables:
+    GIT_DEPTH: "1"
+  before_script:
+    - apk add --no-cache openssh-client tar
+    - eval "$(ssh-agent -s)"
+    - echo "$SSH_PRIVATE_KEY_B64" | base64 -d | ssh-add -
+    - install -d -m 700 ~/.ssh && echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - export TARGET="deploy@$DEPLOY_HOST"
+    - tar -C deploy -cf - docker-compose.prod.yml deploy.sh nginx keycloak | ssh "$TARGET" 'tar -C /opt/flexpress -xf -'
+    - |
+      ssh "$TARGET" 'umask 077; cat > /opt/flexpress/deploy.env' <<EOF
+      APP_IMAGE=$IMAGE
+      PUBLIC_API_HOST=$API_HOST
+      PUBLIC_AUTH_HOST=$AUTH_HOST
+      DB_HOST=$DB_HOST
+      S3_BUCKET=$S3_BUCKET
+      AWS_REGION=${AWS_REGION:-eu-central-1}
+      ACME_EMAIL=$ACME_EMAIL
+      EOF
+    - printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" | ssh "$TARGET" 'umask 077; cat > /opt/flexpress/app.env'
+    - printf 'KC_DB_PASSWORD=%s\nKC_BOOTSTRAP_ADMIN_PASSWORD=%s\n' "$KC_DB_PASSWORD" "$KC_ADMIN_PASSWORD" | ssh "$TARGET" 'umask 077; cat > /opt/flexpress/keycloak.env'
+    - echo "$CI_REGISTRY_PASSWORD" | ssh "$TARGET" "docker login -u '$CI_REGISTRY_USER' --password-stdin '$CI_REGISTRY'"
+  after_script:
+    - ssh "deploy@$DEPLOY_HOST" "docker logout '$CI_REGISTRY'" || true
+
+.staging:
+  extends: .remote
+  variables:
+    DEPLOY_HOST: $STAGING_HOST
+    API_HOST: $STAGING_API_HOST
+    AUTH_HOST: $STAGING_AUTH_HOST
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $STAGING_HOST
+
+.production:
+  extends: .remote
+  variables:
+    DEPLOY_HOST: $PRODUCTION_HOST
+    API_HOST: $PRODUCTION_API_HOST
+    AUTH_HOST: $PRODUCTION_AUTH_HOST
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $PRODUCTION_HOST
+      when: manual
+
+migrate:staging:
+  stage: migrate
+  extends: .staging
+  environment: { name: staging, action: prepare }
+  script:
+    - ssh "$TARGET" "/opt/flexpress/deploy.sh migrate $CI_COMMIT_SHA"
+
+deploy-staging:
+  stage: deploy-staging
+  extends: .staging
+  needs: [build, migrate:staging]
+  environment:
+    name: staging
+    url: https://$STAGING_API_HOST
+  resource_group: staging
+  script:
+    - ssh "$TARGET" "/opt/flexpress/deploy.sh $CI_COMMIT_SHA"
+
+migrate:production:
+  stage: migrate
+  extends: .production
+  environment: { name: production, action: prepare }
+  script:
+    - ssh "$TARGET" "/opt/flexpress/deploy.sh migrate $CI_COMMIT_SHA"
+
+deploy-production:
+  stage: deploy-production
+  extends: .production
+  needs: [build, migrate:production]
+  environment:
+    name: production
+    url: https://$PRODUCTION_API_HOST
+  resource_group: production
+  script:
+    - ssh "$TARGET" "/opt/flexpress/deploy.sh $CI_COMMIT_SHA"

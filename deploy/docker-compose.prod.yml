@@ -1,0 +1,99 @@
+# Production/staging stack on one host (EC2), driven by deploy.sh. Only nginx publishes ports.
+# PostgreSQL is Amazon RDS (private, TLS verified with the RDS CA) and photos go to S3 through the
+# instance's IAM role, so neither runs here and no S3 keys exist.
+#
+# Files next to this one, written by CI (mode 600, never in git):
+#   deploy.env    non-secret settings used for interpolation below (image, hostnames, DB host)
+#   app.env       DB_PASSWORD                                  → API containers only
+#   keycloak.env  KC_DB_PASSWORD, KC_BOOTSTRAP_ADMIN_PASSWORD   → Keycloak only
+name: flexpress
+
+x-app: &app
+  env_file: app.env
+  environment:
+    DB_HOST: ${DB_HOST}
+    DB_PORT: 5432
+    DB_NAME: delivery
+    DB_USER: delivery
+    DB_SSL: "true"
+    DB_SSL_CA: /run/rds-ca.pem
+    KEYCLOAK_ISSUER: https://${PUBLIC_AUTH_HOST}/realms/flexpress
+    KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/flexpress/protocol/openid-connect/certs
+    KEYCLOAK_AUDIENCE: delivery-service
+    S3_BUCKET: ${S3_BUCKET}
+    S3_REGION: ${AWS_REGION:-eu-central-1}
+    LOG_LEVEL: info
+  volumes:
+    - ./rds-ca.pem:/run/rds-ca.pem:ro
+  restart: unless-stopped
+  stop_grace_period: 30s
+  mem_limit: 384m
+
+services:
+  nginx:
+    image: nginx:1.28.0-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Directory mount (not single files): deploy.sh rewrites the generated site and upstream
+      # files, and a directory mount always shows the current version.
+      - ./nginx:/etc/nginx/flexpress:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    restart: unless-stopped
+
+  # Blue/green: deploy.sh starts the idle color with the new tag, waits for readiness, then points
+  # nginx at it. Tags come from deploy.sh (state/<color>_tag).
+  app-blue:
+    <<: *app
+    image: ${APP_IMAGE}:${BLUE_TAG:-none}
+
+  app-green:
+    <<: *app
+    image: ${APP_IMAGE}:${GREEN_TAG:-none}
+
+  # One-shot migration with the image about to be deployed (deploy.sh migrate <tag>).
+  migrate:
+    <<: *app
+    image: ${APP_IMAGE}:${MIGRATE_TAG:-none}
+    command: ["node", "node_modules/typeorm/cli.js", "migration:run", "-d", "dist/database/data-source.js"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    profiles: [tools]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.0
+    # Production mode; the realm (roles, clients, mappers, no users) is imported once if missing.
+    command: ["start", "--import-realm"]
+    env_file: keycloak.env
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://${DB_HOST}:5432/keycloak?sslmode=verify-full&sslrootcert=/opt/keycloak/conf/rds-ca.pem
+      KC_DB_USERNAME: keycloak
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_HOSTNAME: https://${PUBLIC_AUTH_HOST}
+      # TLS ends at nginx; Keycloak trusts its X-Forwarded-* headers. The API fetches the JWKS
+      # over the private network (http://keycloak:8080) via the dynamic backchannel.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./rds-ca.pem:/opt/keycloak/conf/rds-ca.pem:ro
+      - ./keycloak:/opt/keycloak/data/import:ro
+    restart: unless-stopped
+    mem_limit: 900m
+
+  certbot:
+    image: certbot/certbot:v4.2.0
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    profiles: [tools]
+
+volumes:
+  letsencrypt:
+  certbot-www:
