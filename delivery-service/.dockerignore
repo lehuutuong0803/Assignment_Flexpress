@@ -1,0 +1,17 @@
+# Keep the build context small and never send local secrets or build output to the Docker daemon.
+node_modules
+dist
+coverage
+test
+*.log
+
+# Local environment files contain credentials; config reaches the container at runtime only.
+.env
+.env.*
+
+# Not needed to build or run the service
+Dockerfile
+.dockerignore
+eslint.config.mjs
+.prettierrc
+*.md

@@ -71,6 +71,12 @@ describe('Orders API (e2e)', () => {
       .send({ pickupAddress: 'Warehouse 1', deliveryAddress: 'Customer 9' })
       .expect(201);
 
+  it('serves liveness and readiness without a token', async () => {
+    await api().get('/health').expect(200);
+    const { body } = await api().get('/health/ready').expect(200);
+    expect(body.info.database.status).toBe('up');
+  });
+
   it('rejects a request without a token (401)', async () => {
     await api().get('/orders').expect(401);
   });
