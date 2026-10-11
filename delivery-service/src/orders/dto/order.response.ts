@@ -2,24 +2,24 @@ import { OrderStatus } from '../order-status.enum';
 import { Order } from '../order.entity';
 
 /** The API shape of an order. Mapped explicitly so new entity columns are never exposed by accident. */
-export interface OrderResponse {
-  id: string;
-  companyId: string;
-  pickupAddress: string;
-  deliveryAddress: string;
-  assignedDriverId: string | null;
-  status: OrderStatus;
-  podObjectKey: string | null;
-  createdBy: string;
-  createdAt: Date;
-  updatedAt: Date;
+export class OrderResponse {
+  id!: string;
+  companyId!: string;
+  pickupAddress!: string;
+  deliveryAddress!: string;
+  assignedDriverId!: string | null;
+  status!: OrderStatus;
+  podObjectKey!: string | null;
+  createdBy!: string;
+  createdAt!: Date;
+  updatedAt!: Date;
 }
 
-export interface PaginatedOrders {
-  items: OrderResponse[];
-  page: number;
-  limit: number;
-  total: number;
+export class PaginatedOrders {
+  items!: OrderResponse[];
+  page!: number;
+  limit!: number;
+  total!: number;
 }
 
 export function toOrderResponse(order: Order): OrderResponse {

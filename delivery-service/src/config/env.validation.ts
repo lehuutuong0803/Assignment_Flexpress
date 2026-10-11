@@ -4,6 +4,7 @@ import 'reflect-metadata';
 import { plainToInstance, Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsOptional,
   IsInt,
   IsNotEmpty,
   IsString,
@@ -75,6 +76,42 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   KEYCLOAK_AUDIENCE!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  S3_BUCKET!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  S3_REGION: string = 'us-east-1';
+
+  /** Endpoint the service itself calls (e.g. http://minio:9000). Empty = AWS S3. */
+  @IsOptional()
+  @IsUrl(url)
+  S3_ENDPOINT?: string;
+
+  /**
+   * Endpoint used to sign presigned URLs, as clients outside Docker reach it (e.g.
+   * http://localhost:9000, or via nginx in production). The host is part of the signature.
+   * Empty = same as S3_ENDPOINT.
+   */
+  @IsOptional()
+  @IsUrl(url)
+  S3_PUBLIC_ENDPOINT?: string;
+
+  /** MinIO needs path-style URLs (host/bucket/key); AWS S3 uses virtual-hosted style. */
+  @Transform(toBoolean)
+  @IsBoolean()
+  S3_FORCE_PATH_STYLE: boolean = false;
+
+  /** Optional: without them the AWS SDK default chain is used (e.g. an IAM role). */
+  @IsOptional()
+  @IsString()
+  S3_ACCESS_KEY_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_SECRET_ACCESS_KEY?: string;
 }
 
 export function validateEnv(

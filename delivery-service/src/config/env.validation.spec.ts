@@ -9,6 +9,7 @@ const valid = {
   KEYCLOAK_JWKS_URI:
     'http://keycloak:8080/realms/flexpress/protocol/openid-connect/certs',
   KEYCLOAK_AUDIENCE: 'delivery-service',
+  S3_BUCKET: 'flexpress-pod',
 };
 
 describe('validateEnv', () => {

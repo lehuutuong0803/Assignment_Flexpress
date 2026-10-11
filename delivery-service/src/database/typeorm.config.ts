@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 import { DataSourceOptions } from 'typeorm';
 import { EnvironmentVariables } from '../config/env.validation';
+import { IdempotencyKey } from '../orders/idempotency-key.entity';
+import { OrderStatusEvent } from '../orders/order-status-event.entity';
 import { Order } from '../orders/order.entity';
 
 type DbEnv = Pick<
@@ -22,7 +24,7 @@ export function buildDataSourceOptions(env: DbEnv): DataSourceOptions {
     username: env.DB_USER,
     password: env.DB_PASSWORD,
     ssl: env.DB_SSL ? { rejectUnauthorized: true } : false,
-    entities: [Order],
+    entities: [Order, OrderStatusEvent, IdempotencyKey],
     migrations: [join(__dirname, 'migrations', `*.${ext}`)],
     migrationsTableName: 'migrations',
     // Schema changes only through reviewed migrations, run as a separate step before the app starts.
