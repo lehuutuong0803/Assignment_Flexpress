@@ -77,6 +77,22 @@ describe('Orders API (e2e)', () => {
     expect(body.info.database.status).toBe('up');
   });
 
+  it('exposes Prometheus metrics with route templates, not raw ids', async () => {
+    await api().get('/orders').expect(401);
+    await api()
+      .get(`/orders/${randomUUID()}`)
+      .auth(tokens.dispatcherA, { type: 'bearer' })
+      .expect(404);
+    const { text, headers } = await api().get('/metrics').expect(200);
+    expect(headers['content-type']).toContain('text/plain');
+    expect(text).toMatch(
+      /http_requests_total\{method="GET",route="\/orders",status_code="401"\} \d+/,
+    );
+    expect(text).toContain('route="/orders/:id",status_code="404"');
+    expect(text).toContain('http_request_duration_seconds_bucket');
+    expect(text).not.toContain('route="/metrics"');
+  });
+
   it('rejects a request without a token (401)', async () => {
     await api().get('/orders').expect(401);
   });

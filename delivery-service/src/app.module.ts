@@ -6,6 +6,7 @@ import { EnvironmentVariables, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeorm.config';
 import { HealthModule } from './health/health.module';
 import { LoggingModule } from './logging/logging.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { OrdersModule } from './orders/orders.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { OrdersModule } from './orders/orders.module';
     LoggingModule,
     AuthModule,
     HealthModule,
+    MetricsModule,
     OrdersModule,
   ],
 })
