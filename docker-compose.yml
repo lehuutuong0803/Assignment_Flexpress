@@ -2,6 +2,26 @@
 # (see DEPLOYMENT.md); nothing here is used in production.
 name: flexpress
 
+# Settings shared by the app and its one-shot migration job (same image, same config).
+# Containers reach dependencies by service name; the issuer and presigned URLs use localhost
+# because that's what clients on the host see.
+x-app-environment: &app-env
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_NAME: ${DB_NAME:-delivery}
+  DB_USER: ${DB_USER:-delivery}
+  DB_PASSWORD: ${DB_PASSWORD:-dev-only-db-password}
+  KEYCLOAK_ISSUER: http://localhost:8080/realms/flexpress
+  KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/flexpress/protocol/openid-connect/certs
+  KEYCLOAK_AUDIENCE: delivery-service
+  S3_BUCKET: ${S3_BUCKET:-flexpress-pod}
+  S3_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: http://localhost:9000
+  S3_FORCE_PATH_STYLE: "true"
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-dev-only-minio-user}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-dev-only-minio-password}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
 services:
   postgres:
     image: postgres:17.6-alpine
@@ -83,6 +103,40 @@ services:
         aws s3api head-bucket --bucket "$${S3_BUCKET}" 2>/dev/null
         || aws s3api create-bucket --bucket "$${S3_BUCKET}"
     restart: "no"
+
+  # One-shot job: applies pending migrations with the app image (compiled JS, plain node), then
+  # exits 0. Re-running is a no-op. The app only starts after it succeeds.
+  migrate:
+    # Same image as delivery-service, which builds it (Compose builds before creating containers).
+    # Only one service builds: two parallel builds of the same tag collide.
+    image: delivery-service:local
+    pull_policy: never
+    command: ["node", "node_modules/typeorm/cli.js", "migration:run", "-d", "dist/database/data-source.js"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true # short-lived job; the image's HTTP health check doesn't apply
+    restart: "no"
+
+  delivery-service:
+    build: ./delivery-service
+    image: delivery-service:local
+    # Always build from the Dockerfile (layer cache makes it ~1-2 s when nothing changed): never tries
+    # to pull this local tag, and code changes are always picked up without --build.
+    pull_policy: build
+    environment: *app-env
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    # Health check comes from the Dockerfile (GET /health).
 
 volumes:
   postgres-data:
