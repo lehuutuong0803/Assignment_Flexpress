@@ -161,7 +161,10 @@ Also verified locally: the Dockerfile and the local stack from a fresh clone, th
 file (`docker compose config`), both nginx configs (`nginx -t`), `deploy.sh` (shellcheck), and
 `.gitlab-ci.yml` (GitLab's CI JSON schema and pipeline validation).
 
-Not yet rehearsed on the host: a second release with a rollback (`deploy.sh --rollback`), and the
-renewal cron entry. The first pipeline runs surfaced two configuration issues, both fixed: a project
-variable named `DB_HOST` overriding the test job's database, and a host-key variable saved with the
-wrong type.
+Rollback rehearsed on the host after the second release (after submission): `deploy.sh --rollback`
+switched green → blue in about 8 seconds while the readiness endpoint was polled five times a second:
+about 90 consecutive 200s, no failed requests. The image pull failed by design (CI logs the host out of
+the registry after each job), so the script used the image already on the host. Not yet done: the
+certificate renewal cron entry. The first pipeline runs surfaced two configuration issues, both fixed: a
+project variable named `DB_HOST` overriding the test job's database, and a host-key variable saved with
+the wrong type.

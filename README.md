@@ -8,6 +8,7 @@ S3-compatible storage (MinIO locally, S3 in AWS).
 - [DEPLOYMENT.md](DEPLOYMENT.md): CI/CD pipeline, blue/green deploy, rollback, expand/contract migrations,
   network, TLS and secrets.
 - [DECISIONS.md](DECISIONS.md): assumptions, trade-offs, and what I'd do with more time.
+- [AI_USAGE.md](AI_USAGE.md): how I used AI, how I verified it, and where it was wrong.
 
 ## Run it locally (under 5 minutes)
 
@@ -108,7 +109,7 @@ URL=$(curl -s -X POST $API/orders/$ID/proof-of-delivery -H "Authorization: Beare
 curl -s -o /dev/null -w 'upload [%{http_code}]\n' -X PUT "$URL" -H 'Content-Type: image/jpeg' --data-binary @photo.jpg
 curl -s -X POST $API/orders/$ID/status -H "Authorization: Bearer $DRA" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" -d '{"status":"DELIVERED"}'
-curl -s $API/orders/$ID/events -H "Authorization: Bearer $DA"   # full status history
+curl -s $API/orders/$ID/events -H "Authorization: Bearer $DA"   # afull status history
 ```
 
 ## API
