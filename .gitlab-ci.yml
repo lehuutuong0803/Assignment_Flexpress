@@ -7,10 +7,13 @@
 # jobs on protected branches/tags and never show in job logs:
 #   SSH_PRIVATE_KEY_B64   base64 of the CI deploy key (base64 so it's one line and maskable)
 #   SSH_KNOWN_HOSTS       output of `ssh-keyscan -t ed25519 <host>` (not secret)
-#   DB_PASSWORD           password of the `delivery` database role
+#   DEPLOY_DB_PASSWORD    password of the `delivery` database role
 #   KC_DB_PASSWORD        password of the `keycloak` database role
 #   KC_ADMIN_PASSWORD     Keycloak bootstrap admin password
-#   STAGING_HOST, STAGING_API_HOST, STAGING_AUTH_HOST, DB_HOST, S3_BUCKET, ACME_EMAIL (not secret)
+#   STAGING_HOST, STAGING_API_HOST, STAGING_AUTH_HOST, DEPLOY_DB_HOST, DEPLOY_S3_BUCKET, ACME_EMAIL
+#
+# Deploy settings use a DEPLOY_ prefix on purpose: project variables override variables defined in
+# this file, so a project-level DB_HOST would silently replace the test job's local database.
 #   PRODUCTION_HOST, ...  the production job only appears once PRODUCTION_HOST is defined.
 
 stages: [lint, test, build, migrate, deploy-staging, deploy-production]
@@ -111,12 +114,12 @@ build:
       APP_IMAGE=$IMAGE
       PUBLIC_API_HOST=$API_HOST
       PUBLIC_AUTH_HOST=$AUTH_HOST
-      DB_HOST=$DB_HOST
-      S3_BUCKET=$S3_BUCKET
+      DB_HOST=$DEPLOY_DB_HOST
+      S3_BUCKET=$DEPLOY_S3_BUCKET
       AWS_REGION=${AWS_REGION:-eu-central-1}
       ACME_EMAIL=$ACME_EMAIL
       EOF
-    - printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD" | ssh "$TARGET" 'umask 077; cat > /opt/flexpress/app.env'
+    - printf 'DB_PASSWORD=%s\n' "$DEPLOY_DB_PASSWORD" | ssh "$TARGET" 'umask 077; cat > /opt/flexpress/app.env'
     - printf 'KC_DB_PASSWORD=%s\nKC_BOOTSTRAP_ADMIN_PASSWORD=%s\n' "$KC_DB_PASSWORD" "$KC_ADMIN_PASSWORD" | ssh "$TARGET" 'umask 077; cat > /opt/flexpress/keycloak.env'
     - echo "$CI_REGISTRY_PASSWORD" | ssh "$TARGET" "docker login -u '$CI_REGISTRY_USER' --password-stdin '$CI_REGISTRY'"
   after_script:

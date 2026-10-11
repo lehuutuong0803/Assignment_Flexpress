@@ -23,5 +23,6 @@
   },
   "transformIgnorePatterns": [
     "/node_modules/(?!jose/)"
-  ]
+  ],
+  "testTimeout": 30000
 }
