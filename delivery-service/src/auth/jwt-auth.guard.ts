@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   HttpException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -21,6 +22,8 @@ interface AuthRequest {
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly logger = new Logger(JwtAuthGuard.name);
+
   constructor(
     private readonly reflector: Reflector,
     private readonly verifier: TokenVerifier,
@@ -47,7 +50,10 @@ export class JwtAuthGuard implements CanActivate {
       if (error instanceof HttpException) {
         throw error; // e.g. 403 from a valid token without company or role
       }
-      // Don't echo verification details (which check failed) back to the caller.
+      // Don't echo verification details (which check failed) back to the caller, but keep the
+      // reason for operators at debug level (e.g. ERR_JWT_EXPIRED, a wrong "iss"). Never the token.
+      const { code, claim } = error as { code?: string; claim?: string };
+      this.logger.debug({ code, claim }, 'token rejected');
       throw new UnauthorizedException('Invalid or expired token');
     }
     return true;

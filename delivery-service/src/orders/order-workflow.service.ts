@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -58,6 +59,8 @@ class ConcurrentUpdateException extends ConflictException {
 /** Status changes: assignment, driver updates (idempotent), proof of delivery, history. */
 @Injectable()
 export class OrderWorkflowService {
+  private readonly logger = new Logger(OrderWorkflowService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
@@ -81,6 +84,7 @@ export class OrderWorkflowService {
         set: { assignedDriverId: dto.driverId },
       }),
     );
+    this.logTransition(user, order, OrderStatus.ASSIGNED);
     return toOrderResponse(updated);
   }
 
@@ -96,6 +100,7 @@ export class OrderWorkflowService {
 
     const replay = await this.findReplay(user, key, requestHash);
     if (replay) {
+      this.logger.debug({ orderId }, 'idempotent replay');
       return replay;
     }
 
@@ -106,7 +111,7 @@ export class OrderWorkflowService {
     }
 
     try {
-      return await this.dataSource.transaction(async (m) => {
+      const result = await this.dataSource.transaction(async (m) => {
         const updated = await this.applyTransition(m, user, order, dto.status, {
           reason: dto.reason,
           lat: dto.lat,
@@ -123,6 +128,8 @@ export class OrderWorkflowService {
         });
         return { statusCode: 200, body, replayed: false };
       });
+      this.logTransition(user, order, dto.status);
+      return result;
     } catch (error) {
       // A concurrent request with the same key won the race: its transaction committed first, so
       // ours hit the unique key or found the status already changed. Return its stored response.
@@ -132,6 +139,10 @@ export class OrderWorkflowService {
       ) {
         const winner = await this.findReplay(user, key, requestHash);
         if (winner) {
+          this.logger.debug(
+            { orderId },
+            'idempotent replay after a concurrent retry',
+          );
           return winner;
         }
       }
@@ -172,6 +183,11 @@ export class OrderWorkflowService {
     if (result.affected !== 1) {
       throw new ConcurrentUpdateException();
     }
+    // Log the object key only: the presigned URL is a credential for its lifetime.
+    this.logger.log(
+      { orderId: order.id, objectKey },
+      'proof-of-delivery upload URL issued',
+    );
 
     return {
       uploadUrl: upload.url,
@@ -251,6 +267,23 @@ export class OrderWorkflowService {
       lng: opts.lng ?? null,
     });
     return m.findOneByOrFail(Order, { id: order.id });
+  }
+
+  /**
+   * Called after the transaction has committed, so the log never claims a change that was rolled
+   * back. Runs inside the request's logging context, so the line carries req.id.
+   */
+  private logTransition(user: AuthUser, order: Order, to: OrderStatus): void {
+    this.logger.log(
+      {
+        orderId: order.id,
+        from: order.status,
+        to,
+        actorId: user.sub,
+        actorRole: user.role,
+      },
+      'order status changed',
+    );
   }
 
   private async assertProofOfDelivery(order: Order): Promise<void> {

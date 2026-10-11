@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +26,8 @@ import { Order } from './order.entity';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order) private readonly orders: Repository<Order>,
   ) {}
@@ -40,7 +43,17 @@ export class OrdersService {
       assignedDriverId: null,
       podObjectKey: null,
     });
-    return toOrderResponse(await this.orders.save(order));
+    const saved = await this.orders.save(order);
+    // ids only: addresses are personal data and stay out of logs.
+    this.logger.log(
+      {
+        orderId: saved.id,
+        companyId: saved.companyId,
+        createdBy: saved.createdBy,
+      },
+      'order created',
+    );
+    return toOrderResponse(saved);
   }
 
   async findAll(

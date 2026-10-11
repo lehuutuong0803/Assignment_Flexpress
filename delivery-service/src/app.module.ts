@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { EnvironmentVariables, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeorm.config';
 import { HealthModule } from './health/health.module';
+import { LoggingModule } from './logging/logging.module';
 import { OrdersModule } from './orders/orders.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { OrdersModule } from './orders/orders.module';
           DB_SSL: config.get('DB_SSL', { infer: true }),
         }),
     }),
+    LoggingModule,
     AuthModule,
     HealthModule,
     OrdersModule,
