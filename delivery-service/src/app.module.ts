@@ -26,6 +26,7 @@ import { OrdersModule } from './orders/orders.module';
           DB_USER: config.get('DB_USER', { infer: true }),
           DB_PASSWORD: config.get('DB_PASSWORD', { infer: true }),
           DB_SSL: config.get('DB_SSL', { infer: true }),
+          DB_SSL_CA: config.get('DB_SSL_CA', { infer: true }),
         }),
     }),
     LoggingModule,

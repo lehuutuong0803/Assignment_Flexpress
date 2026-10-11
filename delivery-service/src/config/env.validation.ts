@@ -69,6 +69,15 @@ export class EnvironmentVariables {
   @IsBoolean()
   DB_SSL: boolean = false;
 
+  /**
+   * Path to a CA bundle for the database's TLS certificate (e.g. the Amazon RDS bundle). Node's
+   * default trust store doesn't include the RDS CA, so certificate verification needs it.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  DB_SSL_CA?: string;
+
   /** Public issuer, exactly as it appears in the token's `iss` claim. */
   @IsUrl(url)
   KEYCLOAK_ISSUER!: string;

@@ -23,7 +23,8 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
-    "migration:run:prod": "typeorm migration:run -d dist/database/data-source.js"
+    "migration:run:prod": "typeorm migration:run -d dist/database/data-source.js",
+    "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1149.0",

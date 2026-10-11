@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DataSourceOptions } from 'typeorm';
 import { EnvironmentVariables } from '../config/env.validation';
@@ -7,7 +8,13 @@ import { Order } from '../orders/order.entity';
 
 type DbEnv = Pick<
   EnvironmentVariables,
-  'DB_HOST' | 'DB_PORT' | 'DB_NAME' | 'DB_USER' | 'DB_PASSWORD' | 'DB_SSL'
+  | 'DB_HOST'
+  | 'DB_PORT'
+  | 'DB_NAME'
+  | 'DB_USER'
+  | 'DB_PASSWORD'
+  | 'DB_SSL'
+  | 'DB_SSL_CA'
 >;
 
 // Under ts-node (dev CLI) migrations are .ts; in the compiled app they are .js. Matching only the
@@ -23,7 +30,13 @@ export function buildDataSourceOptions(env: DbEnv): DataSourceOptions {
     database: env.DB_NAME,
     username: env.DB_USER,
     password: env.DB_PASSWORD,
-    ssl: env.DB_SSL ? { rejectUnauthorized: true } : false,
+    // TLS with certificate verification; DB_SSL_CA supplies the CA (RDS) when it isn't a public one.
+    ssl: env.DB_SSL
+      ? {
+          rejectUnauthorized: true,
+          ca: env.DB_SSL_CA ? readFileSync(env.DB_SSL_CA, 'utf8') : undefined,
+        }
+      : false,
     entities: [Order, OrderStatusEvent, IdempotencyKey],
     migrations: [join(__dirname, 'migrations', `*.${ext}`)],
     migrationsTableName: 'migrations',
